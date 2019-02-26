@@ -2,13 +2,23 @@ pipeline {
     agent any
 	
 	environment {
+
+		// Paramètres de l'application : 
 		package_version = readMavenPom().getVersion()
-		dockerRegistry = "maddoudou22/Jenkins-AWSKubernetes-Java"
-		dockerRepo = "API-javaSpringboot"
-		applicationName = 'API-javaSpringboot' // Same as artifactId in pom.xml
-		kubernetesNode = 'rancher.maddoudou.click'
+		applicationName = readMavenPom().getArtifactId()
+		groupID = readMavenPom().getGroupId()
+				
+		// Paramètres de la registry Docker configurée dans Nexus :
+		dockerRepo = "jenkins-awskubernetes-java"
+		dockerRegistry = "devops.damand.fr:5000"
+		DOCKER_CACHE_IMAGE_VERSION = "latest"
+		
+		// Paramètres de déploiement dans Kubernetes :
+		kubernetesNode = 'kubernetes.master.damand.fr'
+		kubernetesNodeCertificateLocation = '/var/lib/keys/ireland.pem'
 		deploymentConfigurationPathSource = "deploy-k8s" // Location of the K8s deployment configuration on the pipeline instance
-		deploymentConfigurationPathKubernetes = "/home/ubuntu/k8s-deployments" // Location of the K8s deployment configuration on the K8s instace
+		deploymentConfigurationPathKubernetes = "/home/ubuntu/k8s-deployments" // Location of the K8s deployment configuration on the K8s instance
+				
     }
     stages {
         stage('Build') {
@@ -61,6 +71,17 @@ pipeline {
 				//sh "docker rmi $(docker images --filter "dangling=true" -q --no-trunc) 2>/dev/null"
 				echo 'Publishing Docker image into the private registry ...'
 				sh 'docker push ${dockerRegistry}/${dockerRepo}:${package_version}'
+            }
+        }
+		
+		stage('Deploy') {
+            steps {
+                echo 'Checking Kubernetes readiness ...'
+				sh 'ssh -oStrictHostKeyChecking=no -i {kubernetesNodeCertificateLocation} ubuntu@${kubernetesNode} "kubectl get nodes"'
+				echo 'Sending deployment configuration files to Kubernetes ...'
+				sh 'pwd'
+				sh 'scp -oStrictHostKeyChecking=no -i {kubernetesNodeCertificateLocation} ${deploymentConfigurationPathSource}/* ubuntu@${kubernetesNode}:${deploymentConfigurationPathKubernetes}/${applicationName}'
+				//sh 'docker run -d -p 8088:8080 ${dockerRegistry}/${dockerRepo}:${package_version}'
             }
         }
     }

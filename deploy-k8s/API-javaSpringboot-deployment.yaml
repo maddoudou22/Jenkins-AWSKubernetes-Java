@@ -1,22 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: api-javaspringboot
+  name: jenkins-awskubernetes-java
   labels:
-    app: API-javaSpringboot
+    app: Jenkins-AWSKubernetes-Java
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: API-javaSpringboot
+      app: Jenkins-AWSKubernetes-Java
   template:
     metadata:
       labels:
-        app: API-javaSpringboot
+        app: Jenkins-AWSKubernetes-Java
     spec:
       containers:
-      - name: api-javaspringboot
-        image: devops.maddoudou.click:5000/api-javaspringboot:0.1.0-SNAPSHOT
+      - name: jenkins-awskubernetes-java
+        image: devops.damand.fr:5000/jenkins-awskubernetes-java:0.1.0-SNAPSHOT
         resources:
           requests:
             ephemeral-storage: "500Mi"

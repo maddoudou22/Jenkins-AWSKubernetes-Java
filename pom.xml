@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>org.springframework</groupId>
-    <artifactId>API-javaSpringboot</artifactId>
+    <artifactId>Jenkins-AWSKubernetes-Java</artifactId>
     <version>0.1.0-SNAPSHOT</version>
 
     <parent>
@@ -82,6 +82,7 @@
               <artifactId>dependency-check-maven</artifactId>
               <version>3.3.2</version>
               <configuration>
+				  <format>HTML</format>
                   <failBuildOnCVSS>8</failBuildOnCVSS>
               </configuration>
               <executions>
@@ -98,6 +99,7 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-surefire-plugin</artifactId>
+				<version>3.0.0-M3</version>
 				<configuration>
 					<useSystemClassLoader>false</useSystemClassLoader>
 				</configuration>
