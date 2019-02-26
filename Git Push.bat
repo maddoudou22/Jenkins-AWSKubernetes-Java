@@ -1,9 +1,9 @@
 
 echo off
 
-SET nom_Projet_Git=API-javaSpringboot
-SET URL_Projet_Git=https://github.com/maddoudou22/API-javaSpringboot.git
-SET Repertoire_Local_Projet=C:\awsLambda\java\API-javaSpringboot
+SET nom_Projet_Git=Jenkins-AWSKubernetes-Java
+SET URL_Projet_Git=https://github.com/maddoudou22/Jenkins-AWSKubernetes-Java.git
+SET Repertoire_Local_Projet=C:\awsLambda\java\Jenkins-AWSKubernetes-Java
 
 cd %Repertoire_Local_Projet%
 

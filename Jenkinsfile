@@ -3,7 +3,7 @@ pipeline {
 	
 	environment {
 		package_version = readMavenPom().getVersion()
-		dockerRegistry = "maddoudou22/api-javaspringboot"
+		dockerRegistry = "maddoudou22/Jenkins-AWSKubernetes-Java"
 		dockerRepo = "API-javaSpringboot"
 		applicationName = 'API-javaSpringboot' // Same as artifactId in pom.xml
 		kubernetesNode = 'rancher.maddoudou.click'
