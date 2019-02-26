@@ -1,0 +1,80 @@
+openapi: 3.0.0
+# Added by API Auto Mocking Plugin
+servers:
+  - description: SwaggerHub API Auto Mocking
+    url: https://virtserver.swaggerhub.com/maddoudou/API-javaSpringboot/1.0.0
+info:
+  description: |
+    Application "API-javaSpringboot"
+  version: "1.0.0"
+  title: Swagger API-javaSpringboot
+  termsOfService: 'http://swagger.io/terms/'
+  contact:
+    email: apiteam@swagger.io
+  license:
+    name: Apache 2.0
+    url: 'http://www.apache.org/licenses/LICENSE-2.0.html'
+tags:
+  - name: greeting
+    description: Pour se faire souhaiter la bienvenue
+    externalDocs:
+      description: Find out more
+      url: 'http://swagger.io'
+paths:
+  /greeting:
+    get:
+      tags:
+        - greeting
+      summary: Salutation
+      description: Salue un personne spécifique ou tout le monde
+      operationId: salutationUtilisateur
+      parameters:
+        - name: name
+          in: query
+          description: Nom de la persone à saluer
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: successful operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/greeting'
+            application/xml:
+              schema:
+                $ref: '#/components/schemas/greeting'
+        '404':
+          description: User not found
+
+externalDocs:
+  description: Find out more about Swagger
+  url: 'http://swagger.io'
+components:
+  schemas:
+    greeting:
+      type: object
+      required:
+        - name
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 2
+        content:
+          type: string
+          example: michel
+      xml:
+        name: User
+  requestBodies:
+    greeting:
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/greeting'
+        application/xml:
+          schema:
+            $ref: '#/components/schemas/greeting'
+      description: Salutation de l'utilisateur
+      required: true

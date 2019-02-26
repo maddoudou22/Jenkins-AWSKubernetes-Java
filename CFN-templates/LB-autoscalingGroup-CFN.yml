@@ -1,0 +1,245 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Creation automatisee d'un autoscaling group et de son load-balancer pour repartir la charge sur des Worker Nodes Kubernetes (non deployes via ce template). Creation d'une wild-card DNS pour deleguer les sous-domaines a l'Ingress Kubernetes.
+# Creation automatisee d'un Groupe Autoscaling pointant sur une Launch Configuration
+#   - L'autoscaling Group est configure pour ne demarrer qu'une seule instance de Worker Node Kubernetes - Aucune Scaling Policy n'est associee
+# Création d'un target Group référancant l'autoscaling Group pour la réaprtition de charge
+#   - 
+# Creation du load-balancer avec un Listen configuration et pontant sur le target Group pour la repartition de la charge
+#   - Ecoute sur le port 80
+#   - Plage de ports ouverts sur le Security-Group du Load-Balancer en entrée : 80, 443, 8000-10000, IMCP
+# Creation d'une wild-card DNS pour deleguer les sous-domaines a l'Ingress Kubernetes.
+
+
+Parameters:
+
+#   FQDNinstance:
+#     Description: Le FQDN de l'instance declare dans Route53 (ne pas oublier le "." a la fin)
+#     Default: "rancher.maddoudou.click."
+#     Type: String
+#   ImageInstance:
+#     Description: Image de l'instance hebergeant le pipeline DevOps.
+#     Type: AWS::EC2::Image::Id
+#     Default: ami-01cf402537ec53935
+#   TypeInstance:
+#     Description: Le type d'instance pour Rancher (t3.medium recommandee).
+#     Type: String
+#     Default: t3.medium
+#     AllowedValues: [ t2.micro, t3.small, t3.medium, t3.large ]
+#   Keypair:
+#     Description: Keypair utilisee pour les instances.
+#     Type: AWS::EC2::KeyPair::KeyName
+#     Default: aws.ireland.keypair
+     
+   NomLaunchConfiguration:
+     Description: Le nom de la "Launch Configuration" utilisee pour instancier les EC2 des Worker Nodes Kubernetes
+     Default: "Kube-nodeCopy"
+     Type: String
+   NomAutoScalingGroup:
+     Description: Le nom du groupe auto-scaling hebergeant les Worker Nodes Kubernetes
+     Default: "KubeWorker-AutoScalingGroup-CFN"
+     Type: String
+   NomLoadBalancer:
+     Description: Le nom du load-balancer repartissant la charge pour leGroup Autoscaling des Worker Nodes Kubernetes
+     Default: "KubeWorker-LB-CFN"
+     Type: String
+   NomTargetGroup:
+     Description: Le nom du load-balancer repartissant la charge pour leGroup Autoscaling des Worker Nodes Kubernetes
+     Default: "KubeWorker-TargetGroup-CFN"
+     Type: String
+   VPCKubernetes:
+     Description: Le VPC hebergeant le load-balancer et les Worker Nodes Kubernetes (doit etre accessible via Internet)
+     Type: AWS::EC2::VPC::Id
+   SubnetPublicKubeNodes:
+     Description: Subnet du VPC hebergeant les worker nodes Kubernetes (accessible via Internet).
+     Type: AWS::EC2::Subnet::Id
+   SubnetsPublicLB:
+     Description: 2 Subnets du VPC hebergeant le load-balancer (car il necessite 2 subnets dans des AZ separees).
+     Type: List<AWS::EC2::Subnet::Id>
+     
+     
+Resources:
+
+#-----------------------------------------------------------------------------------------------
+# Security Groups ------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------
+
+  KubeWorkerNodesSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref 'VPCKubernetes'
+      GroupDescription: Security Group AutoScalingGroup !Sub ${NomAutoScalingGroup}
+      SecurityGroupIngress:
+      - IpProtocol: icmp
+        FromPort: '8'
+        ToPort: "-1"
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '32000'
+        ToPort: '32767'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: '32000'
+        ToPort: '32767'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '443'
+        ToPort: '443'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '10250'
+        ToPort: '10250'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: '8285'
+        ToPort: '8285'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: '8472'
+        ToPort: '8472'
+        CidrIp: 0.0.0.0/0
+# Pas besoin si VXLAN :
+#      - IpProtocol: tcp
+#        FromPort: '0'
+#        ToPort: '65535'
+#        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: !Sub ${NomLoadBalancer}-SG-CFN
+      - Key: CloudFormationStack
+        Value: !Ref 'AWS::StackId'
+        
+  LBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref 'VPCKubernetes'
+      GroupDescription: Security Group LoadBalancer !Sub ${NomLoadBalancer}
+      SecurityGroupIngress:
+      - IpProtocol: icmp
+        FromPort: '8'
+        ToPort: "-1"
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '8000'
+        ToPort: '10000'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '443'
+        ToPort: '443'
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: !Sub ${NomLoadBalancer}-SG-CFN
+      - Key: CloudFormationStack
+        Value: !Ref 'AWS::StackId'
+
+        
+#-----------------------------------------------------------------------------------------------
+# Load-balancer --------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------
+        
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Name: !Ref 'NomLoadBalancer'
+#      Scheme: internet-facing
+      SecurityGroups:
+      - Ref: LBSecurityGroup
+#      AvailabilityZones: !GetAZs ''
+#      CrossZone: 'true'
+      Subnets: !Ref SubnetsPublicLB
+#      HealthCheck:
+#        Target: HTTP:80/
+#        HealthyThreshold: '3'
+#        UnhealthyThreshold: '5'
+#        Interval: '30'
+#        Timeout: '5'
+      Tags:
+      - Key: CloudFormationStack
+        Value: !Ref 'AWS::StackId'
+        
+  LoadBalancerListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref 'LoadBalancerListenerTargetGroup'
+      LoadBalancerArn: !Ref 'LoadBalancer'
+      Port: 80
+      Protocol: HTTP
+    
+  LoadBalancerListenerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: LoadBalancer
+    Properties:
+      Name: !Ref 'NomTargetGroup'
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref 'VPCKubernetes'
+      Tags:
+      - Key: CloudFormationStack
+        Value: !Ref 'AWS::StackId'
+    
+#-----------------------------------------------------------------------------------------------
+# Autoscaling ----------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------------
+
+  KubeNodesAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    DependsOn:
+    - LoadBalancer
+    Properties:
+      AutoScalingGroupName: !Ref 'NomAutoScalingGroup'
+#      AvailabilityZones:
+#        Fn::GetAZs: ''
+      LaunchConfigurationName: !Ref 'NomLaunchConfiguration'
+      MinSize: '1'
+      MaxSize: '1'
+      TargetGroupARNs:
+      - !Ref 'LoadBalancerListenerTargetGroup'
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 300
+      VPCZoneIdentifier:
+      - !Ref 'SubnetPublicKubeNodes'
+      Tags:
+      - Key: CloudFormationStack
+        Value: !Ref 'AWS::StackId'
+        PropagateAtLaunch: 'true'
+        
+# A voir plus tard :        
+#  KubeNodeLaunchConfiguration:
+#    Type: AWS::AutoScaling::LaunchConfiguration
+#    Properties:
+#      ImageId: ami-039f68e9feddd864d
+#      SecurityGroups:
+#      - Ref: KubeWorkerNodesSecurityGroup
+#      InstanceType: t2.micro
+#      BlockDeviceMappings:
+#      - DeviceName: "/dev/sdk"
+#        Ebs:
+#          VolumeSize: '8'
+#      - DeviceName: "/dev/sdc"
+#        VirtualName: ephemeral0
+
+      
+#Outputs:
+#     EIPInstance:
+#       Description: EIP associee a l'instance creee
+#       Value: !Ref 'IPAddress'
+#     FQDNInstance:
+#       Description: l'enregistrement DNS de l'instance creee
+#       Value: !Ref 'FQDNinstance'
+#    Voir le résultat de la section UserData de l'instance dans "/var/log/cloud-init-output.log"

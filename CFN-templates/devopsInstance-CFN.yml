@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Creation automatisee d'un pipeline DevOps customise.
+# NOTE : afin de pouvoir utiliser le FQDN de l'instance créée depuis le poste de travail (navigateur ou autre), il est fortement recommandé de faire un 'ipconfig /flushdns'.
+#
+# L'instance est construite sur une Ubuntu Server 18 avec une IP public dynamique. L'instane est créée à partir d'une AMI.
+# Il est recommandé de lancer cette instance sur une t3.large, notamment pour le premier build de l'application (sinon risque d'erreur de manque de mémoire Java)
+# Les composants installés sur l'AMI sont détaillés dans le modop 'Modop - Creation d'une toolchain custom.doc' avec le détails des commandes utilisées.
+#   - openjdk-8, docker.io, kubectl, etc.
+#   - Jenkins (via atp-get) configuré pour être déclenché via un push sur le repo GitLab https://github.com/maddoudou22/API-javaSpringboot
+#       . Credentials : admin/admin
+#       . Exécutable via la commande (exécuté automatiquement au démarrage).
+#       . Service sur le port 9090
+#   - Maven (via apt-get ?).
+#       . Exécutable via Jenkins et la configuration du pom.xml
+#   - Nexus (via une archive récupérée sur SonarType.org).  Avec 2 repository : un pour les snapshots et un pour les releases
+#       . Credentials : admin/admin123
+#       . Exécutable via le script ~/run-sonar-nexus.sh (à faire manuellement), ou la commande (/var/lib/nexus/nexus-2.14.10-01/bin/nexus start)
+#       . Service sur le port 8081
+#   - Junit. Déclaré uniquement via un plugin dans le pom.xml de l'application dans GitHub
+#   - Maven DependecyCheck
+#   - Sonar (sous forme d'un conteneur Docker). Avec 2 plugins : 1 pour remonter le rapport des tests unitaires dans le dashboard (conf pom.xml uniquement) et 1 pour remonter le rapport du DenpencyCheck dans le dashboard (plugin Sonar + conf pom.xml)
+#       . Credentials : admin/admin
+#       . Exécutable via le script ~/run-sonar-nexus.sh (à faire manuellement), ou la commande (docker start <ID conteneur>)
+#       . Service sur le port 9000
+#   - Registry Docker (sous forme d'un conteneur Docker). configurée avec des certificats auto-signés (les clients doivent déclarer les certificats sur leurs machines).
+#       . Exécutable via la commande (docker start <ID conteneur>)
+#       . Service sur le port 5000
+
+Parameters:
+
+   DomaineDNS:
+     Description: HostedZone de Route53 dans laquelle déclarer l'enregistrement DNS
+     Default: "damand.fr."
+     Type: String
+   FQDNinstance:
+     Description: Le FQDN de l'instance declare dans Route53 (ne pas oublier le "." a la fin)
+     Default: "devops.damand.fr."
+     Type: String
+   NomInstanceEC2:
+     Description: Nom de l'instance hebergeant le pipeline DevOps.
+     Default: "DevopsInstance-CFN"
+     Type: String
+   ImageDevops:
+     Description: Image de l'instance hebergeant le pipeline DevOps.
+     Type: AWS::EC2::Image::Id
+     Default: ami-0a9a1fc931cea4cbb
+   TypeInstance:
+     Description: Le type d'instance pour le pipeline DevOps (t3.large recommandee).
+     Type: String
+     Default: t3.medium
+     AllowedValues: [ t2.micro, t3.small, t3.medium, t3.large ]
+   Keypair:
+     Description: Keypair utilisee pour les instances.
+     Type: AWS::EC2::KeyPair::KeyName
+     Default: aws.ireland.keypair
+   VPC:
+     Description: Le VPC hebergeant l'instance DevOps (doit etre accessible via Internet)
+     Type: AWS::EC2::VPC::Id
+   Subnet:
+     Description: Subnet du VPC hebergeant l'instance DevOps (doit etre accessible via Internet).
+     Type: AWS::EC2::Subnet::Id
+     
+     
+Resources:
+
+   DevopsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref 'VPC'
+      GroupDescription: Security Group instance !Sub ${NomInstanceEC2}
+      SecurityGroupIngress:
+      - IpProtocol: icmp
+        FromPort: '8'
+        ToPort: "-1"
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '5000'
+        ToPort: '5000'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '443'
+        ToPort: '443'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '8000'
+        ToPort: '10000'
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: !Sub ${NomInstanceEC2}-SG
+      - Key: CloudFormationStack
+        Value: !Ref 'AWS::StackId'
+        
+   devopsInstance:
+     Type: AWS::EC2::Instance
+     Properties:
+      ImageId: !Ref ImageDevops
+      InstanceType: !Ref TypeInstance
+      KeyName:
+        Ref: Keypair
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: 'true'
+          DeviceIndex: '0'
+          SubnetId: !Ref 'Subnet'
+          GroupSet:
+            - !Ref 'DevopsSecurityGroup'
+      Tags:
+      - Key: Name
+        Value: !Sub ${NomInstanceEC2}
+      - Key: CloudFormationStack
+        Value: !Ref 'AWS::StackId'
+      UserData:
+        "Fn::Base64": !Sub |
+          #!/bin/bash -x
+          sudo /var/lib/nexus/nexus-2.14.10-01/bin/nexus start
+          sudo docker start b009f682d566
+
+   DnsRecord:
+     Type: AWS::Route53::RecordSet
+     Properties:
+       HostedZoneName: !Ref 'DomaineDNS'
+       Comment: Enregistrement DNS pour !Sub ${NomInstanceEC2}
+       Name: !Ref 'FQDNinstance'
+       #Name: !Join ['', ['devops', ., !Ref 'DomaineDNS']]
+       Type: A
+       TTL: '900'
+       ResourceRecords:
+       - !GetAtt devopsInstance.PublicIp
+       
+Outputs:
+     IPpublicInstance:
+       Description: IP public de l'instance creee
+       Value: !Sub ${devopsInstance.PublicIp}
+     FQDNinstance:  
+       Description: l'enregistrement DNS de l'instance creee
+       Value: !Ref 'FQDNinstance'
+       #Value: !Join ['', ['devops', ., !Ref 'DomaineDNS']]
+#    Voir le résultat de la section UserData de l'instance dans "/var/log/cloud-init-output.log"

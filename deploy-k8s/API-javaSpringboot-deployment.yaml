@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-javaspringboot
+  labels:
+    app: API-javaSpringboot
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: API-javaSpringboot
+  template:
+    metadata:
+      labels:
+        app: API-javaSpringboot
+    spec:
+      containers:
+      - name: api-javaspringboot
+        image: devops.maddoudou.click:5000/api-javaspringboot:0.1.0-SNAPSHOT
+        resources:
+          requests:
+            ephemeral-storage: "500Mi"
+          limits:
+            ephemeral-storage: "1Gi"
+        ports:
+        - containerPort: 8880

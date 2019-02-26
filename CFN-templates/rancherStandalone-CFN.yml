@@ -1,0 +1,148 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: Creation automatisee d'un cluster Kubernetes via Rancher - 1 master Kubernetes et 1 Worker Node sur une seule instance EC2.
+# NOTE : afin de pouvoir utiliser le FQDN de l'instance créée depuis le poste de travail (navigateur ou autre), il est fortement recommandé de faire un 'ipconfig /flushdns'.
+#
+# L'instance est construite sur une Ubuntu Server 16 (ne marche pas avec Ubuntu Server 18) avec une EIP (car Rancher ne sait pas gérer les IP dynamiques ni les nom DNS (forcément des IPs). L'instane est créée à partir d'une AMI.
+# Il est recommandé de lancer cette instance sur une t3.medium, sinon le manque de ressources prvoque des problèmes de connexion entre le master et le worker node.
+# Le master et le worker node sont tous les deux instanciés sous forme de conteneurs : le master est un conteneur Rancher déployé manuellement, le worker Node est entièrement géré par Rancher.
+# Les composants installés sur l'AMI sont détaillés dans le modop 'Modop - Creation d'une toolchain custom.doc' avec le détails des commandes utilisées.
+
+Parameters:
+
+   DomaineDNS:
+     Description: HostedZone de Route53 dans laquelle déclarer l'enregistrement DNS
+     Default: "maddoudou.click."
+     Type: String
+   FQDNinstance:
+     Description: Le FQDN de l'instance declare dans Route53 (ne pas oublier le "." a la fin)
+     Default: "rancher.maddoudou.click."
+     Type: String
+   NomInstanceEC2:
+     Description: Nom de l'instance hebergeant Rancher.
+     Default: "RancherStandalone-CFN"
+     Type: String
+   ImageDevops:
+     Description: Image de l'instance hebergeant le pipeline DevOps.
+     Type: AWS::EC2::Image::Id
+     Default: ami-01cf402537ec53935
+   TypeInstance:
+     Description: Le type d'instance pour Rancher (t3.medium recommandee).
+     Type: String
+     Default: t3.medium
+     AllowedValues: [ t2.micro, t3.small, t3.medium, t3.large ]
+   Keypair:
+     Description: Keypair utilisee pour les instances.
+     Type: AWS::EC2::KeyPair::KeyName
+     Default: aws.ireland.keypair
+   VPC:
+     Description: Le VPC hebergeant l'instance DevOps (doit etre accessible via Internet)
+     Type: AWS::EC2::VPC::Id
+   Subnet:
+     Description: Subnet du VPC hebergeant l'instance DevOps (doit etre accessible via Internet).
+     Type: AWS::EC2::Subnet::Id
+     
+     
+Resources:
+
+   RancherSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref 'VPC'
+      GroupDescription: Security Group instance !Sub ${NomInstanceEC2}
+      SecurityGroupIngress:
+      - IpProtocol: icmp
+        FromPort: '8'
+        ToPort: "-1"
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '22'
+        ToPort: '22'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '32000'
+        ToPort: '32767'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: '32000'
+        ToPort: '32767'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '80'
+        ToPort: '80'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '443'
+        ToPort: '443'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: tcp
+        FromPort: '2000'
+        ToPort: '11000'
+        CidrIp: 0.0.0.0/0
+      - IpProtocol: udp
+        FromPort: '8472'
+        ToPort: '8472'
+        CidrIp: 0.0.0.0/0
+      Tags:
+      - Key: Name
+        Value: !Sub ${NomInstanceEC2}-SG
+      - Key: CloudFormationStack
+        Value: !Ref 'AWS::StackId'
+        
+   rancherInstance:
+     Type: AWS::EC2::Instance
+     Properties:
+      ImageId: !Ref ImageDevops
+      InstanceType: !Ref TypeInstance
+      KeyName:
+        Ref: Keypair
+      NetworkInterfaces:
+      - DeviceIndex: '0'
+        NetworkInterfaceId: !Ref EC2NetworkInterface
+      Tags:
+      - Key: Name
+        Value: !Sub ${NomInstanceEC2}
+      - Key: CloudFormationStack
+        Value: !Ref 'AWS::StackId'
+      UserData:
+        "Fn::Base64": !Sub |
+          #!/bin/bash -x
+          sudo docker start fe8544f17ff2
+
+   EC2NetworkInterface:
+    Type: 'AWS::EC2::NetworkInterface'
+    Properties:
+      GroupSet:
+      - !Ref RancherSecurityGroup
+      SubnetId: !Ref 'Subnet'
+
+   IPAddress:
+    Type: AWS::EC2::EIP
+    
+   EIPallocation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: "eipalloc-019f5054564f73df4"
+      # L'mage spécifiée ne fonctionne qu'avec cette EIP. Si l'EIP change il faudra recréer l'AMI de Rancher en reconfigurant Rancher depuis le début
+      # Note : parfois l'association échoue car l'instance n'est pas encore démarrée (erreur XXXX).
+      NetworkInterfaceId: !Ref EC2NetworkInterface
+
+   DnsRecord:
+     Type: AWS::Route53::RecordSet
+     Properties:
+       HostedZoneName: !Ref 'DomaineDNS'
+       Comment: Enregistrement DNS pour !Sub ${NomInstanceEC2}
+       Name: !Ref 'FQDNinstance'
+       Type: A
+       TTL: '900'
+       ResourceRecords:
+       - !GetAtt rancherInstance.PublicIp
+       
+Outputs:
+     EIPInstance:
+       Description: EIP associee a l'instance creee
+       Value: !Ref 'IPAddress'
+     FQDNInstance:
+       Description: l'enregistrement DNS de l'instance creee
+       Value: !Ref 'FQDNinstance'
+#    Voir le résultat de la section UserData de l'instance dans "/var/log/cloud-init-output.log"
